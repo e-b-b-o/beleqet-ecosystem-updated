@@ -2,13 +2,8 @@
 node_modules/
 
 # Build and compiled output
-dist/
 build/
 *.tsbuildinfo
-frontend/.next/
-frontend/out/
-server/dist/
-server/build/
 
 # Environment variables & secrets
 .env
