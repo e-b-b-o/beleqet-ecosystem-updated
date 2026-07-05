@@ -55,7 +55,7 @@ jobs:
           JWT_ACCESS_SECRET=ci_test_jwt_secret_64_chars_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
           JWT_ACCESS_EXPIRES=15m
           JWT_REFRESH_EXPIRES=30d
-          TOTP_ENCRYPTION_KEY=abcdef0123456789abcdef0123456789
+          TOTP_ENCRYPTION_KEY=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
           TOTP_TEMP_SECRET=ci_test_totp_secret_64_chars_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
           TOTP_ISSUER=Beleqet
           NODE_ENV=test
@@ -118,7 +118,7 @@ jobs:
           JWT_ACCESS_SECRET=ci_test_jwt_secret_64_chars_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
           JWT_ACCESS_EXPIRES=15m
           JWT_REFRESH_EXPIRES=30d
-          TOTP_ENCRYPTION_KEY=abcdef0123456789abcdef0123456789
+          TOTP_ENCRYPTION_KEY=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
           TOTP_TEMP_SECRET=ci_test_totp_secret_64_chars_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
           TOTP_ISSUER=Beleqet
           NODE_ENV=test
