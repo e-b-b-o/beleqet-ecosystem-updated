@@ -25,6 +25,13 @@ TOTP_ISSUER=Beleqet
 # Separate signing key for 2FA temp/challenge tokens (REQUIRED — must differ from JWT_ACCESS_SECRET)
 # Generate with: openssl rand -hex 64
 TOTP_TEMP_SECRET=<64+ hex chars>
+
+# Redis connection — used for replay attack prevention (SETNX), rate limiting counters,
+# and session state across multiple server instances
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_TLS=false
 ```
 
 ## Architecture
