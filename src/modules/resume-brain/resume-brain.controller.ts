@@ -1,0 +1,52 @@
+import {
+  Controller,
+  Get,
+  Post,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
+} from '@nestjs/swagger';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { ResumeBrainService, UploadedResumeFile } from './resume-brain.service';
+import { MAX_FILE_SIZE_BYTES } from './resume-brain.constants';
+
+@ApiTags('resume-brain')
+@Controller('resume-brain')
+export class ResumeBrainController {
+  constructor(private readonly resumeBrainService: ResumeBrainService) {}
+
+  @Get('health')
+  @ApiOperation({ summary: 'Resume Brain module health check' })
+  health() {
+    return this.resumeBrainService.health();
+  }
+
+  @Post('upload')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Upload a resume (PDF/DOC/DOCX, max 5MB) and echo back its metadata',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @UseInterceptors(
+    // Multer enforces the 5MB limit and raises 413 Payload Too Large on its own.
+    FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE_BYTES } }),
+  )
+  upload(@UploadedFile() file: UploadedResumeFile) {
+    return this.resumeBrainService.describeUpload(file);
+  }
+}
