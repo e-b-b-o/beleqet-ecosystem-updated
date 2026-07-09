@@ -74,7 +74,10 @@ export class AIExtractorService {
       throw this.toHttpException(err);
     }
 
-    const parsed = this.parseJson(raw);
+    // Best-effort parse. If the model ignored us and returned non-JSON, we do
+    // NOT throw here — we return an empty profile and let ResumeValidatorService
+    // (Phase 5) reject it with a 400. Keeps rejection in one place.
+    const parsed = this.parseJson(raw) ?? {};
     const resume = this.normalize(parsed);
 
     this.logger.log(
@@ -102,9 +105,10 @@ export class AIExtractorService {
   /**
    * Parse the model reply into an object. We ask for a JSON object, but stay
    * defensive: strip any ```json fences and, as a last resort, pull the first
-   * balanced `{ … }` block out of the text.
+   * balanced `{ … }` block out of the text. Returns `null` when nothing usable
+   * can be parsed (caller falls back to an empty profile).
    */
-  private parseJson(raw: string): Record<string, unknown> {
+  private parseJson(raw: string): Record<string, unknown> | null {
     const cleaned = raw
       .replace(/^\s*```(?:json)?/i, '')
       .replace(/```\s*$/i, '')
@@ -123,10 +127,8 @@ export class AIExtractorService {
       }
     }
 
-    this.logger.warn('AI reply was not valid JSON.');
-    throw new UnprocessableEntityException(
-      'The AI returned a response that was not valid JSON.',
-    );
+    this.logger.warn('AI reply was not valid JSON; returning empty profile.');
+    return null;
   }
 
   /** Return the substring from the first `{` to its matching `}`, or null. */

@@ -3,16 +3,19 @@ import { ResumeBrainController } from './resume-brain.controller';
 import { ResumeBrainService, UploadedResumeFile } from './resume-brain.service';
 import { DocumentParserService } from './document-parser.service';
 import { AIExtractorService } from './ai-extractor.service';
+import { ResumeValidatorService } from './resume-validator.service';
 import { EMPTY_EXTRACTED_RESUME } from './dto/extracted-resume.dto';
 
 describe('ResumeBrainController', () => {
   let controller: ResumeBrainController;
   let parser: { extractText: jest.Mock };
   let aiExtractor: { extract: jest.Mock; providerName: string };
+  let validator: { validate: jest.Mock };
 
   beforeEach(async () => {
     parser = { extractText: jest.fn() };
     aiExtractor = { extract: jest.fn(), providerName: 'fake' };
+    validator = { validate: jest.fn((x) => x) };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ResumeBrainController],
@@ -20,6 +23,7 @@ describe('ResumeBrainController', () => {
         ResumeBrainService,
         { provide: DocumentParserService, useValue: parser },
         { provide: AIExtractorService, useValue: aiExtractor },
+        { provide: ResumeValidatorService, useValue: validator },
       ],
     }).compile();
 

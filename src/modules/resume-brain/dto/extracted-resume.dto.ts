@@ -1,3 +1,14 @@
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsEmail,
+  IsString,
+  MaxLength,
+  ValidateIf,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
 /**
  * ExtractedResume — the structured JSON contract the AI layer produces.
  *
@@ -56,6 +67,78 @@ export interface ExtractedResume {
   certifications: string[];
   education: ExtractedEducation[];
   experience: ExtractedExperience[];
+}
+
+// ── Validation DTOs (Phase 5 — "never trust AI") ─────────────────────────────
+//
+// class-validator mirrors of the interfaces above. The extractor normalises the
+// AI reply into these shapes; ResumeValidatorService then enforces these rules
+// and rejects anything that slips through (bad email, over-long fields, etc.).
+// Empty strings are allowed everywhere — a resume may simply omit a field — so
+// validation guards *format*, not *presence*. Emptiness is handled separately.
+
+/** Max entries we accept in any single list, to bound abuse / runaway output. */
+const MAX_LIST = 100;
+
+export class ExtractedEducationDto implements ExtractedEducation {
+  @IsString() @MaxLength(200) school: string;
+  @IsString() @MaxLength(200) qualification: string;
+  @IsString() @MaxLength(100) year: string;
+}
+
+export class ExtractedExperienceDto implements ExtractedExperience {
+  @IsString() @MaxLength(200) role: string;
+  @IsString() @MaxLength(200) company: string;
+  @IsString() @MaxLength(100) start: string;
+  @IsString() @MaxLength(100) end: string;
+  @IsString() @MaxLength(5000) description: string;
+}
+
+export class ExtractedResumeDto implements ExtractedResume {
+  @IsString() @MaxLength(200) firstName: string;
+  @IsString() @MaxLength(200) lastName: string;
+
+  // Optional, but if the AI returns a non-empty email it MUST be well-formed.
+  @IsString()
+  @MaxLength(320)
+  @ValidateIf((o: ExtractedResumeDto) => o.email !== '')
+  @IsEmail({}, { message: 'email must be a valid email address' })
+  email: string;
+
+  @IsString() @MaxLength(100) phone: string;
+  @IsString() @MaxLength(5000) summary: string;
+  @IsString() @MaxLength(300) headline: string;
+  @IsString() @MaxLength(300) location: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  @ArrayMaxSize(MAX_LIST)
+  skills: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  @ArrayMaxSize(MAX_LIST)
+  languages: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(300, { each: true })
+  @ArrayMaxSize(MAX_LIST)
+  certifications: string[];
+
+  @IsArray()
+  @ArrayMaxSize(MAX_LIST)
+  @ValidateNested({ each: true })
+  @Type(() => ExtractedEducationDto)
+  education: ExtractedEducationDto[];
+
+  @IsArray()
+  @ArrayMaxSize(MAX_LIST)
+  @ValidateNested({ each: true })
+  @Type(() => ExtractedExperienceDto)
+  experience: ExtractedExperienceDto[];
 }
 
 /**

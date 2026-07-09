@@ -11,6 +11,7 @@ import {
 } from './resume-brain.constants';
 import { DocumentParserService } from './document-parser.service';
 import { AIExtractorService } from './ai-extractor.service';
+import { ResumeValidatorService } from './resume-validator.service';
 import { ExtractedResume } from './dto/extracted-resume.dto';
 
 /**
@@ -59,6 +60,7 @@ export class ResumeBrainService {
   constructor(
     private readonly documentParser: DocumentParserService,
     private readonly aiExtractor: AIExtractorService,
+    private readonly resumeValidator: ResumeValidatorService,
   ) {}
 
   health() {
@@ -109,16 +111,18 @@ export class ResumeBrainService {
   }
 
   /**
-   * Full Phase 4 pipeline: validate → parse text → AI-extract structured JSON.
+   * Full pipeline: validate upload → parse text → AI-extract → validate (Phase 5).
    *
-   * Reuses {@link parseResume} for the upload/parse stages, then hands the raw
-   * text to {@link AIExtractorService}. The returned `profile` is a normalised
-   * {@link ExtractedResume}, ready for the frontend autofill and (via the
-   * Phase 6 mapper) the existing UserService.
+   * Reuses {@link parseResume} for the upload/parse stages, hands the raw text
+   * to {@link AIExtractorService}, then runs the result through
+   * {@link ResumeValidatorService} which rejects untrusted/empty AI output with
+   * a `400`. The returned `profile` is a validated {@link ExtractedResume},
+   * ready for the frontend autofill and (via the Phase 6 mapper) UserService.
    */
   async extractProfile(file?: UploadedResumeFile): Promise<ExtractedResumeResult> {
     const { text, ...metadata } = await this.parseResume(file);
-    const profile = await this.aiExtractor.extract(text);
+    const extracted = await this.aiExtractor.extract(text);
+    const profile = this.resumeValidator.validate(extracted);
     return { ...metadata, provider: this.aiExtractor.providerName, profile };
   }
 

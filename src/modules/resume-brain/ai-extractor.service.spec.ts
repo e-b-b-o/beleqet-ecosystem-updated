@@ -124,11 +124,24 @@ describe('AIExtractorService', () => {
     );
   });
 
-  it('rejects unparseable AI output with 422', async () => {
+  it('returns an empty profile when the AI output is unparseable (validator rejects later)', async () => {
     provider.reply = 'this is not json at all';
-    await expect(service.extract('text')).rejects.toBeInstanceOf(
-      UnprocessableEntityException,
-    );
+    const result = await service.extract('text');
+    // No throw here — Phase 5 ResumeValidatorService turns this into a 400.
+    expect(result).toEqual({
+      firstName: '',
+      lastName: '',
+      email: '',
+      phone: '',
+      summary: '',
+      headline: '',
+      location: '',
+      skills: [],
+      languages: [],
+      certifications: [],
+      education: [],
+      experience: [],
+    });
   });
 
   it('surfaces provider rate-limits as HTTP 429', async () => {
