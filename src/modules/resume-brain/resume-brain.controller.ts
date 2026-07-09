@@ -70,4 +70,26 @@ export class ResumeBrainController {
   parse(@UploadedFile() file: UploadedResumeFile) {
     return this.resumeBrainService.parseResume(file);
   }
+
+  @Post('extract')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Upload a resume (PDF/DOCX, max 5MB), parse it and return a structured ' +
+      'profile as JSON (Phase 4 — AI extraction)',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE_BYTES } }),
+  )
+  extract(@UploadedFile() file: UploadedResumeFile) {
+    return this.resumeBrainService.extractProfile(file);
+  }
 }

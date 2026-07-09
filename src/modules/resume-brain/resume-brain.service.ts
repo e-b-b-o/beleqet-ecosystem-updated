@@ -10,6 +10,8 @@ import {
   ALLOWED_MIME_TYPES,
 } from './resume-brain.constants';
 import { DocumentParserService } from './document-parser.service';
+import { AIExtractorService } from './ai-extractor.service';
+import { ExtractedResume } from './dto/extracted-resume.dto';
 
 /**
  * Minimal shape of a Multer-uploaded file. Mirrors what
@@ -35,6 +37,13 @@ export interface ParsedResume extends UploadMetadata {
   text: string;
 }
 
+/** Upload metadata plus the AI-extracted structured profile (Phase 4). */
+export interface ExtractedResumeResult extends UploadMetadata {
+  /** Provider that produced the extraction, e.g. "groq". */
+  provider: string;
+  profile: ExtractedResume;
+}
+
 /**
  * ResumeBrainService
  *
@@ -47,7 +56,10 @@ export interface ParsedResume extends UploadMetadata {
 export class ResumeBrainService {
   private readonly logger = new Logger(ResumeBrainService.name);
 
-  constructor(private readonly documentParser: DocumentParserService) {}
+  constructor(
+    private readonly documentParser: DocumentParserService,
+    private readonly aiExtractor: AIExtractorService,
+  ) {}
 
   health() {
     return {
@@ -94,6 +106,20 @@ export class ResumeBrainService {
     // `describeUpload` throws when `file` is missing, so it is defined here.
     const text = await this.documentParser.extractText(file as UploadedResumeFile);
     return { ...metadata, text };
+  }
+
+  /**
+   * Full Phase 4 pipeline: validate → parse text → AI-extract structured JSON.
+   *
+   * Reuses {@link parseResume} for the upload/parse stages, then hands the raw
+   * text to {@link AIExtractorService}. The returned `profile` is a normalised
+   * {@link ExtractedResume}, ready for the frontend autofill and (via the
+   * Phase 6 mapper) the existing UserService.
+   */
+  async extractProfile(file?: UploadedResumeFile): Promise<ExtractedResumeResult> {
+    const { text, ...metadata } = await this.parseResume(file);
+    const profile = await this.aiExtractor.extract(text);
+    return { ...metadata, provider: this.aiExtractor.providerName, profile };
   }
 
   /**

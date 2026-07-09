@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { ResumeBrainService, UploadedResumeFile } from './resume-brain.service';
 import { DocumentParserService } from './document-parser.service';
+import { AIExtractorService } from './ai-extractor.service';
+import { EMPTY_EXTRACTED_RESUME } from './dto/extracted-resume.dto';
 
 const makeFile = (over: Partial<UploadedResumeFile> = {}): UploadedResumeFile => ({
   originalname: 'resume.pdf',
@@ -18,14 +20,17 @@ const makeFile = (over: Partial<UploadedResumeFile> = {}): UploadedResumeFile =>
 describe('ResumeBrainService', () => {
   let service: ResumeBrainService;
   let parser: { extractText: jest.Mock };
+  let aiExtractor: { extract: jest.Mock; providerName: string };
 
   beforeEach(async () => {
     parser = { extractText: jest.fn() };
+    aiExtractor = { extract: jest.fn(), providerName: 'fake' };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ResumeBrainService,
         { provide: DocumentParserService, useValue: parser },
+        { provide: AIExtractorService, useValue: aiExtractor },
       ],
     }).compile();
 
@@ -130,6 +135,34 @@ describe('ResumeBrainService', () => {
       await expect(service.parseResume(makeFile())).rejects.toThrow(
         UnprocessableEntityException,
       );
+    });
+  });
+
+  describe('extractProfile', () => {
+    it('parses the file, runs AI extraction and returns metadata + profile', async () => {
+      parser.extractText.mockResolvedValue('Jane Doe\nEngineer');
+      const profile = { ...EMPTY_EXTRACTED_RESUME, firstName: 'Jane' };
+      aiExtractor.extract.mockResolvedValue(profile);
+
+      const file = makeFile();
+      await expect(service.extractProfile(file)).resolves.toEqual({
+        filename: 'resume.pdf',
+        mimetype: 'application/pdf',
+        size: 1024,
+        provider: 'fake',
+        profile,
+      });
+      expect(parser.extractText).toHaveBeenCalledWith(file);
+      expect(aiExtractor.extract).toHaveBeenCalledWith('Jane Doe\nEngineer');
+    });
+
+    it('does not call the AI when the type is unsupported (415)', async () => {
+      const file = makeFile({ originalname: 'image.png', mimetype: 'image/png' });
+
+      await expect(service.extractProfile(file)).rejects.toThrow(
+        UnsupportedMediaTypeException,
+      );
+      expect(aiExtractor.extract).not.toHaveBeenCalled();
     });
   });
 });
