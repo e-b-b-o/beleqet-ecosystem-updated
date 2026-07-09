@@ -14,7 +14,7 @@ export class OpenAiKycProvider implements KycProvider {
 
   constructor(private readonly config: ConfigService) {
     this.openai = new OpenAI({
-      apiKey: this.config.get<string>('OPENAI_API_KEY'),
+      apiKey: this.config.get<string>('OPENAI_API_KEY') || 'dummy_key_for_testing',
     });
   }
 
