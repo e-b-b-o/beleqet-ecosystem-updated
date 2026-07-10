@@ -18,76 +18,19 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { authenticatedFetch } from "@/lib/auth";
+import {
+  buildProfilePayload,
+  emptyCv,
+  extractErrorMessage,
+  mergeExtractedProfile,
+  type CvData,
+  type Education,
+  type Experience,
+  type ExtractedProfile,
+} from "@/lib/resume-brain/mapping";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
-
-type Experience = {
-  id: number;
-  role: string;
-  company: string;
-  start: string;
-  end: string;
-  description: string;
-};
-type Education = {
-  id: number;
-  school: string;
-  qualification: string;
-  year: string;
-};
-type CvData = {
-  fullName: string;
-  title: string;
-  email: string;
-  phone: string;
-  location: string;
-  website: string;
-  summary: string;
-  skills: string;
-  languages: string;
-  experience: Experience[];
-  education: Education[];
-};
-
-// Shape returned by POST /resume-brain/extract (`profile`). Mirrors the
-// backend ExtractedResume contract so the autofill maps field-for-field.
-type ExtractedProfile = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  summary: string;
-  headline: string;
-  location: string;
-  skills: string[];
-  languages: string[];
-  certifications: string[];
-  education: { school: string; qualification: string; year: string }[];
-  experience: {
-    role: string;
-    company: string;
-    start: string;
-    end: string;
-    description: string;
-  }[];
-};
-
-const emptyCv: CvData = {
-  fullName: "",
-  title: "",
-  email: "",
-  phone: "",
-  location: "",
-  website: "",
-  summary: "",
-  skills: "",
-  languages: "",
-  experience: [
-    { id: 1, role: "", company: "", start: "", end: "", description: "" },
-  ],
-  education: [{ id: 1, school: "", qualification: "", year: "" }],
-};
 
 const inputClass =
   "mt-1.5 w-full rounded-xl border border-primary/10 bg-white px-3.5 py-3 text-sm text-ink outline-none transition focus:border-brandGreen focus:ring-2 focus:ring-brandGreen/10";
@@ -193,7 +136,7 @@ export default function CvMakerPage() {
       setProfileError("Please log in to save your details to your profile.");
       return;
     }
-    const payload = buildProfilePayload();
+    const payload = buildProfilePayload(cv);
     if (Object.keys(payload).length === 0) {
       setProfileError("Nothing to save yet — add your name, title, or skills first.");
       return;
@@ -214,24 +157,6 @@ export default function CvMakerPage() {
     }
   }
 
-  // Map the (possibly edited) CV form onto UpdateUserDto. Only non-empty fields
-  // are included so a partial CV never blanks data already on the profile.
-  function buildProfilePayload(): Record<string, unknown> {
-    const [firstName, ...rest] = cv.fullName.trim().split(/\s+/);
-    const skills = cv.skills
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const payload: Record<string, unknown> = {};
-    if (firstName) payload.firstName = firstName;
-    if (rest.length) payload.lastName = rest.join(" ");
-    if (cv.phone.trim()) payload.phone = cv.phone.trim();
-    if (cv.title.trim()) payload.headline = cv.title.trim();
-    if (cv.summary.trim()) payload.bio = cv.summary.trim();
-    if (cv.location.trim()) payload.location = cv.location.trim();
-    if (skills.length) payload.skills = skills;
-    return payload;
-  }
   async function generateSummary() {
     setAiLoading(true);
     setAiError("");
@@ -311,73 +236,18 @@ export default function CvMakerPage() {
   }
 
   // Merge the AI's structured profile into the form and remember which fields
-  // it touched so we can highlight them for review.
+  // it touched so we can highlight them for review. The pure merge lives in
+  // lib/resume-brain/mapping so it can be unit-tested without React.
   function applyExtractedProfile(profile: ExtractedProfile) {
     if (!profile) return;
-    const fullName = [profile.firstName, profile.lastName]
-      .filter(Boolean)
-      .join(" ")
-      .trim();
-    const filled = new Set<string>();
-
+    let filledFields = new Set<string>();
     setCv((old) => {
-      const next: CvData = { ...old };
-      if (fullName) (next.fullName = fullName), filled.add("fullName");
-      if (profile.headline) (next.title = profile.headline), filled.add("title");
-      if (profile.email) (next.email = profile.email), filled.add("email");
-      if (profile.phone) (next.phone = profile.phone), filled.add("phone");
-      if (profile.location)
-        (next.location = profile.location), filled.add("location");
-      if (profile.summary)
-        (next.summary = profile.summary), filled.add("summary");
-      if (profile.skills?.length)
-        (next.skills = profile.skills.join(", ")), filled.add("skills");
-      if (profile.languages?.length)
-        (next.languages = profile.languages.join(", ")), filled.add("languages");
-      if (profile.experience?.length) {
-        next.experience = profile.experience.map((x, i) => ({
-          id: Date.now() + i,
-          role: x.role,
-          company: x.company,
-          start: x.start,
-          end: x.end,
-          description: x.description,
-        }));
-        filled.add("experience");
-      }
-      if (profile.education?.length) {
-        next.education = profile.education.map((x, i) => ({
-          id: Date.now() + 1000 + i,
-          school: x.school,
-          qualification: x.qualification,
-          year: x.year,
-        }));
-        filled.add("education");
-      }
+      const { next, filled } = mergeExtractedProfile(old, profile);
+      filledFields = filled;
       return next;
     });
-
-    setAiFields(filled);
+    setAiFields(filledFields);
     setSaved(false);
-  }
-
-  function extractErrorMessage(status: number, data: { message?: string }): string {
-    switch (status) {
-      case 400:
-        return "That file didn't look like a resume. Please try another file.";
-      case 413:
-        return "That file is too large (max 5 MB).";
-      case 415:
-        return "Unsupported file type. Please upload a PDF or DOCX.";
-      case 422:
-        return "We couldn't read text from that file. Scanned or image-only resumes aren't supported.";
-      case 429:
-        return "The AI is busy right now. Please try again in a moment.";
-      case 503:
-        return "Resume AI is temporarily unavailable. Please try again later.";
-      default:
-        return data?.message || "Could not read that resume.";
-    }
   }
 
   return (
