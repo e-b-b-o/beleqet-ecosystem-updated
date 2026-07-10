@@ -93,7 +93,7 @@
   },
   "jest": {
     "moduleNameMapper": {
-      "@prisma-client": "src/prisma/prisma.service"
+      "^@prisma-client$": "<rootDir>/prisma/prisma.service"
     },
     "moduleFileExtensions": [
       "js",
