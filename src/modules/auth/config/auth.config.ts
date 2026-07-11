@@ -13,7 +13,7 @@ const REQUIRED_KEY_LENGTH_BYTES = 32;
  * responsibilities (Single Responsibility Principle).
  */
 export const TOKEN_ENCRYPTION_KEY = Symbol('TOKEN_ENCRYPTION_KEY');
-export const AUTH_ENV_CONFIG = Symbol('AUTH_ENV_CONFIG');
+
 
 /**
  * Strongly-typed shape of the environment configuration this module reads.
@@ -31,6 +31,8 @@ export interface AuthEnvConfig {
   readonly jwtAccessSecret: string;
   /** Base URL of this API, used to build emailed confirmation links. */
   readonly appBaseUrl: string;
+  /** Secret for express-session, used only as transient CSRF-state storage during the LinkedIn OIDC handshake. */
+  readonly sessionSecret: string;
   /** Raw 32-byte AES-256-GCM key, decoded from the base64 env value. */
   readonly tokenEncryptionKey: Buffer;
 }
@@ -83,6 +85,7 @@ export function loadAuthEnvConfig(): AuthEnvConfig {
     linkedinCallbackUrl: requireEnv('LINKEDIN_CALLBACK_URL'),
     jwtAccessSecret: requireEnv('JWT_ACCESS_SECRET'),
     appBaseUrl: requireEnv('APP_BASE_URL'),
+    sessionSecret: requireEnv('SESSION_SECRET'),
     tokenEncryptionKey,
   };
 }

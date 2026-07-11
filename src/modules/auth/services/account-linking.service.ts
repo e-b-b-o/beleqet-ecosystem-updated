@@ -196,6 +196,20 @@ export class AccountLinkingService {
       throw new ProviderIdentityAlreadyLinkedError();
     }
 
+    if (alreadyLinked !== null && alreadyLinked.userId === consumed.userId) {
+      // Idempotent case: the identity is already linked to this SAME
+      // user — e.g. the user clicked the confirmation email twice, or a
+      // race condition delivered two concurrent confirm requests.
+      // Treat as success rather than attempting a duplicate insert,
+      // which would otherwise crash with a 500 on the
+      // @@unique([provider, providerAccountId]) constraint.
+      const existingUser = await this.accountRepository.findUserById(consumed.userId);
+      if (existingUser === null) {
+        throw new InvalidLinkConfirmationTokenError();
+      }
+      return existingUser;
+    }
+
     await this.accountRepository.attachOAuthAccount({
       userId: consumed.userId,
       provider: profile.provider,

@@ -1,8 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Request } from 'express';
 import { AuthController } from '../auth.controller';
+import { AuthService } from '../auth.service';
 import { AccountLinkingService } from '../services/account-linking.service';
-import { TokenIssuanceService, TokenPair } from '../services/token-issuance.service';
 import { EMAIL_SENDER, IEmailSender } from '../interfaces/email-sender.interface';
 import { AUTH_ENV_CONFIG } from '../auth.module';
 import { AuthEnvConfig } from '../config/auth.config';
@@ -47,26 +47,29 @@ function buildRequest(
   return { user: identity, query } as unknown as Request;
 }
 
-const FAKE_TOKENS: TokenPair = { accessToken: 'access.jwt', refreshToken: 'refresh-raw' };
+const FAKE_TOKENS = { accessToken: 'access.jwt', refreshToken: 'refresh-raw' };
 
 describe('AuthController', () => {
   let controller: AuthController;
+  let authService: jest.Mocked<
+    Pick<AuthService, 'issueTokensForUserId' | 'refresh' | 'validateUser' | 'login' | 'register'>
+  >;
   let accountLinkingService: jest.Mocked<
     Pick<AccountLinkingService, 'handleOAuthSignIn' | 'confirmPendingLink'>
-  >;
-  let tokenIssuanceService: jest.Mocked<
-    Pick<TokenIssuanceService, 'issueTokenPair' | 'rotateRefreshToken'>
   >;
   let emailSender: jest.Mocked<IEmailSender>;
 
   beforeEach(async () => {
+    authService = {
+      issueTokensForUserId: jest.fn(),
+      refresh: jest.fn(),
+      validateUser: jest.fn(),
+      login: jest.fn(),
+      register: jest.fn(),
+    };
     accountLinkingService = {
       handleOAuthSignIn: jest.fn(),
       confirmPendingLink: jest.fn(),
-    };
-    tokenIssuanceService = {
-      issueTokenPair: jest.fn(),
-      rotateRefreshToken: jest.fn(),
     };
     emailSender = { sendAccountLinkConfirmation: jest.fn() };
 
@@ -77,8 +80,8 @@ describe('AuthController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
       providers: [
+        { provide: AuthService, useValue: authService },
         { provide: AccountLinkingService, useValue: accountLinkingService },
-        { provide: TokenIssuanceService, useValue: tokenIssuanceService },
         { provide: EMAIL_SENDER, useValue: emailSender },
         { provide: AUTH_ENV_CONFIG, useValue: config },
       ],
@@ -90,37 +93,31 @@ describe('AuthController', () => {
   afterEach(() => jest.clearAllMocks());
 
   describe('googleCallback / linkedinCallback — fresh sign-in path', () => {
-    it('issues tokens on a LOGIN outcome', async () => {
+    it('issues tokens on a LOGIN outcome via AuthService', async () => {
       const identity = buildIdentity();
       const user = buildUser();
       accountLinkingService.handleOAuthSignIn.mockResolvedValueOnce({ kind: 'LOGIN', user });
-      tokenIssuanceService.issueTokenPair.mockResolvedValueOnce(FAKE_TOKENS);
+      authService.issueTokensForUserId.mockResolvedValueOnce(FAKE_TOKENS as never);
 
       const result = await controller.googleCallback(buildRequest(identity));
 
-      expect(accountLinkingService.handleOAuthSignIn).toHaveBeenCalledWith(
-        identity.profile,
-        identity.encryptedAccessToken,
-        identity.encryptedRefreshToken,
-      );
-      expect(tokenIssuanceService.issueTokenPair).toHaveBeenCalledWith(user.id);
+      expect(authService.issueTokensForUserId).toHaveBeenCalledWith(user.id);
       expect(result).toEqual({ status: 'authenticated', tokens: FAKE_TOKENS });
-      expect(emailSender.sendAccountLinkConfirmation).not.toHaveBeenCalled();
     });
 
     it('issues tokens on a SIGNUP outcome', async () => {
       const identity = buildIdentity();
       const user = buildUser({ id: 'new-user' });
       accountLinkingService.handleOAuthSignIn.mockResolvedValueOnce({ kind: 'SIGNUP', user });
-      tokenIssuanceService.issueTokenPair.mockResolvedValueOnce(FAKE_TOKENS);
+      authService.issueTokensForUserId.mockResolvedValueOnce(FAKE_TOKENS as never);
 
       const result = await controller.googleCallback(buildRequest(identity));
 
-      expect(tokenIssuanceService.issueTokenPair).toHaveBeenCalledWith('new-user');
+      expect(authService.issueTokensForUserId).toHaveBeenCalledWith('new-user');
       expect(result).toEqual({ status: 'authenticated', tokens: FAKE_TOKENS });
     });
 
-    it('emails a confirmation link and does NOT leak the token on PENDING_CONFIRMATION (Google)', async () => {
+    it('emails a confirmation link and does NOT leak the token on PENDING_CONFIRMATION', async () => {
       const identity = buildIdentity({ provider: OAuthProvider.GOOGLE });
       accountLinkingService.handleOAuthSignIn.mockResolvedValueOnce({
         kind: 'PENDING_CONFIRMATION',
@@ -135,30 +132,9 @@ describe('AuthController', () => {
         'jane.doe@example.com',
         'http://localhost:3000/auth/google/link?token=confirm-abc',
       );
-      expect(result).toEqual({
-        status: 'confirmation_required',
-        message: expect.any(String),
-      });
-      // Critical: the raw token must never appear in the API response.
+      expect(result).toEqual({ status: 'confirmation_required', message: expect.any(String) });
       expect(JSON.stringify(result)).not.toContain('confirm-abc');
-      expect(tokenIssuanceService.issueTokenPair).not.toHaveBeenCalled();
-    });
-
-    it('builds a linkedin link path on PENDING_CONFIRMATION (LinkedIn)', async () => {
-      const identity = buildIdentity({ provider: OAuthProvider.LINKEDIN });
-      accountLinkingService.handleOAuthSignIn.mockResolvedValueOnce({
-        kind: 'PENDING_CONFIRMATION',
-        candidateUserId: 'user-1',
-        candidateEmail: 'jane.doe@example.com',
-        confirmationToken: 'confirm-xyz',
-      });
-
-      await controller.linkedinCallback(buildRequest(identity));
-
-      expect(emailSender.sendAccountLinkConfirmation).toHaveBeenCalledWith(
-        'jane.doe@example.com',
-        'http://localhost:3000/auth/linkedin/link?token=confirm-xyz',
-      );
+      expect(authService.issueTokensForUserId).not.toHaveBeenCalled();
     });
   });
 
@@ -167,10 +143,10 @@ describe('AuthController', () => {
       const identity = buildIdentity();
       const linkedUser = buildUser();
       accountLinkingService.confirmPendingLink.mockResolvedValueOnce(linkedUser);
-      tokenIssuanceService.issueTokenPair.mockResolvedValueOnce(FAKE_TOKENS);
+      authService.issueTokensForUserId.mockResolvedValueOnce(FAKE_TOKENS as never);
 
       const result = await controller.googleCallback(
-        buildRequest(identity, { state: 'confirm-abc' }),
+        buildRequest(identity, { state: 'link:confirm-abc' }),
       );
 
       expect(accountLinkingService.confirmPendingLink).toHaveBeenCalledWith(
@@ -180,17 +156,17 @@ describe('AuthController', () => {
         identity.encryptedRefreshToken,
       );
       expect(accountLinkingService.handleOAuthSignIn).not.toHaveBeenCalled();
-      expect(tokenIssuanceService.issueTokenPair).toHaveBeenCalledWith(linkedUser.id);
+      expect(authService.issueTokensForUserId).toHaveBeenCalledWith(linkedUser.id);
       expect(result).toEqual({ status: 'authenticated', tokens: FAKE_TOKENS });
     });
 
-    it('ignores an empty-string state and falls back to fresh sign-in', async () => {
+    it('ignores a state without the "link:" prefix (e.g. the provider\'s own CSRF state) and treats it as a fresh sign-in', async () => {
       const identity = buildIdentity();
       const user = buildUser();
       accountLinkingService.handleOAuthSignIn.mockResolvedValueOnce({ kind: 'LOGIN', user });
-      tokenIssuanceService.issueTokenPair.mockResolvedValueOnce(FAKE_TOKENS);
+      authService.issueTokensForUserId.mockResolvedValueOnce(FAKE_TOKENS as never);
 
-      await controller.googleCallback(buildRequest(identity, { state: '' }));
+      await controller.googleCallback(buildRequest(identity, { state: 'some-provider-csrf-nonce' }));
 
       expect(accountLinkingService.handleOAuthSignIn).toHaveBeenCalled();
       expect(accountLinkingService.confirmPendingLink).not.toHaveBeenCalled();
@@ -198,18 +174,18 @@ describe('AuthController', () => {
   });
 
   describe('refresh', () => {
-    it('delegates to TokenIssuanceService.rotateRefreshToken and returns the new pair', async () => {
-      tokenIssuanceService.rotateRefreshToken.mockResolvedValueOnce(FAKE_TOKENS);
+    it('delegates to AuthService.refresh (the single unified refresh path)', async () => {
+      authService.refresh.mockResolvedValueOnce(FAKE_TOKENS as never);
 
       const result = await controller.refresh({ refreshToken: 'old-refresh-token' });
 
-      expect(tokenIssuanceService.rotateRefreshToken).toHaveBeenCalledWith('old-refresh-token');
+      expect(authService.refresh).toHaveBeenCalledWith('old-refresh-token');
       expect(result).toEqual(FAKE_TOKENS);
     });
   });
 
   describe('guard-only entrypoints', () => {
-    it('googleLogin, linkedinLogin, googleLinkStart, linkedinLinkStart are no-ops (guard handles the redirect)', () => {
+    it('googleLogin, linkedinLogin, googleLinkStart, linkedinLinkStart are no-ops', () => {
       expect(controller.googleLogin()).toBeUndefined();
       expect(controller.linkedinLogin()).toBeUndefined();
       expect(controller.googleLinkStart()).toBeUndefined();

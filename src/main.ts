@@ -14,9 +14,13 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
 
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret) {
+    throw new Error('Missing required environment variable "SESSION_SECRET".');
+  }
   app.use(
     session({
-      secret: process.env.SESSION_SECRET as string,
+      secret: sessionSecret,
       resave: false,
       saveUninitialized: false,
       cookie: { secure: false }, // set true once you're on HTTPS in production

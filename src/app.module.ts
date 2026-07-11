@@ -97,7 +97,6 @@ import { APP_GUARD } from '@nestjs/core';
     UploadsModule,
     TelegramModule,
     ContactModule,
-    AuthModule,
   ],
   providers: [
     {

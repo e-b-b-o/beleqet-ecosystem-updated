@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { randomBytes } from 'crypto';
-import { PrismaService } from '@prisma-client';
+import { PrismaService } from '../../../prisma/prisma.service';
 import {
   AttachOAuthAccountInput,
   CreateOAuthUserInput,
@@ -46,7 +46,9 @@ export class AccountRepository implements IAccountRepository {
   }
 
   /** {@inheritdoc IAccountRepository.findUserByEmail} */
-  public async findUserByEmail(email: string): Promise<UserIdentitySnapshot | null> {
+  public async findUserByEmail(
+    email: string,
+  ): Promise<UserIdentitySnapshot | null> {
     const record = await this.prisma.user.findUnique({
       where: { email: email.toLowerCase().trim() },
       select: {
@@ -67,7 +69,9 @@ export class AccountRepository implements IAccountRepository {
   }
 
   /** {@inheritdoc IAccountRepository.findUserById} */
-  public async findUserById(userId: string): Promise<UserIdentitySnapshot | null> {
+  public async findUserById(
+    userId: string,
+  ): Promise<UserIdentitySnapshot | null> {
     const record = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -123,7 +127,9 @@ export class AccountRepository implements IAccountRepository {
   }
 
   /** {@inheritdoc IAccountRepository.attachOAuthAccount} */
-  public async attachOAuthAccount(input: AttachOAuthAccountInput): Promise<void> {
+  public async attachOAuthAccount(
+    input: AttachOAuthAccountInput,
+  ): Promise<void> {
     await this.prisma.oAuthAccount.create({
       data: {
         userId: input.userId,
@@ -160,23 +166,37 @@ export class AccountRepository implements IAccountRepository {
     token: string,
     expectedType: VerificationTokenType,
   ): Promise<{ userId: string } | null> {
-    const record = await this.prisma.verificationToken.findUnique({
-      where: { token },
-      select: { id: true, userId: true, type: true, expiresAt: true },
+    // Wrapped in a transaction so that under concurrent requests for the
+    // SAME token, only one caller's delete affects a row (count === 1);
+    // the other's `deleteMany` affects zero rows and correctly receives
+    // null. This closes the race window a plain find-then-delete leaves
+    // open, which previously let two concurrent confirm requests both
+    // "consume" the same token successfully.
+    return this.prisma.$transaction(async (tx) => {
+      const record = await tx.verificationToken.findUnique({
+        where: { token },
+        select: { id: true, userId: true, type: true, expiresAt: true },
+      });
+
+      if (
+        record === null ||
+        record.type !== expectedType ||
+        record.expiresAt.getTime() < Date.now()
+      ) {
+        return null;
+      }
+
+      const deleted = await tx.verificationToken.deleteMany({
+        where: { id: record.id },
+      });
+
+      if (deleted.count === 0) {
+        // A concurrent transaction already consumed this token first.
+        return null;
+      }
+
+      return { userId: record.userId };
     });
-
-    if (
-      record === null ||
-      record.type !== expectedType ||
-      record.expiresAt.getTime() < Date.now()
-    ) {
-      return null;
-    }
-
-    // Delete-on-consume prevents replay of the same confirmation token.
-    await this.prisma.verificationToken.delete({ where: { id: record.id } });
-
-    return { userId: record.userId };
   }
 
   /**

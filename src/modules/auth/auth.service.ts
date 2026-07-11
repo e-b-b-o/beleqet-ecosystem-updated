@@ -244,7 +244,18 @@ export class AuthService {
     return { success: true, message: 'Password reset successfully' };
   }
 
-  private async issueTokens(user: {
+  /**
+   * Signs a fresh access token and issues a new rotating refresh token
+   * for the given user, enforcing a cap of 5 concurrent sessions.
+   *
+   * Made public (was previously private) so both `TwoFactorController`
+   * (post-2FA-verification token issuance) and the Social Logins OAuth
+   * callback flow (via {@link issueTokensForUserId}) can reuse this
+   * exact same token-issuance code path — ensuring every login method
+   * in the app (password, 2FA, Google, LinkedIn) produces tokens in the
+   * same format, sharing the same `RefreshToken` table consistently.
+   */
+  public async issueTokens(user: {
     id: string;
     email: string;
     firstName: string;
@@ -289,5 +300,23 @@ export class AuthService {
         role: user.role,
       },
     };
+  }
+
+  /**
+   * Convenience wrapper around {@link issueTokens} for callers that only
+   * have a `userId` on hand — specifically, the Social Logins OAuth
+   * callback flow, which deals with a narrow {@link UserIdentitySnapshot}
+   * (no `role` field) rather than the full `User` record this method
+   * needs. Looks up the full user record and delegates to
+   * {@link issueTokens}, so OAuth-issued tokens are byte-for-byte
+   * identical in format/claims to password-login-issued ones.
+   *
+   * @throws if no user exists with the given id (should never happen in
+   *   practice, since the caller just created/found this user moments
+   *   earlier in the same request).
+   */
+  public async issueTokensForUserId(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    return this.issueTokens(user);
   }
 }

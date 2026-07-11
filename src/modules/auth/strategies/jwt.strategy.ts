@@ -1,9 +1,20 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { AUTH_ENV_CONFIG } from '../config/auth.config';
+import { AUTH_ENV_CONFIG } from '../auth.module';
 import { AuthEnvConfig } from '../config/auth.config';
-import { AccessTokenPayload } from '../services/token-issuance.service';
+
+/**
+ * JWT payload shape signed into every access token by
+ * `AuthService.issueTokens` (defined here, not imported, since the
+ * OAuth module's own separate token-issuance service was removed in
+ * favor of reusing AuthService as the single token-issuance path).
+ */
+export interface AccessTokenPayload {
+  readonly sub: string;
+  readonly email?: string;
+  readonly role?: string;
+}
 
 /** Shape attached to `req.user` for any route behind {@link JwtAuthGuard}. */
 export interface AuthenticatedRequestUser {
@@ -12,12 +23,8 @@ export interface AuthenticatedRequestUser {
 
 /**
  * Validates the short-lived JWT access token issued by
- * `TokenIssuanceService` on every protected request. Stateless by
- * design — no DB lookup here; revocation is handled at the refresh-token
- * layer (see `TokenIssuanceService.revokeAllRefreshTokens`), so a
- * revoked user's *existing* access token remains valid for up to its
- * 15-minute TTL. This tradeoff (fast auth checks vs. instant revocation)
- * is standard for short-lived access tokens.
+ * `AuthService.issueTokens` / `issueTokensForUserId` on every protected
+ * request. Stateless by design — no DB lookup here.
  */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
