@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { StorageController, UploadFileDto } from './storage.controller';
-import { StorageService } from './storage.service';
+import { StorageService, MulterFile } from './storage.service';
 import { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { BadRequestException } from '@nestjs/common';
 import { Response } from 'express';
@@ -36,7 +36,7 @@ describe('StorageController', () => {
   });
 
   describe('uploadFile', () => {
-    const mockFile = (): Express.Multer.File => ({
+    const mockFile = (): MulterFile => ({
       fieldname: 'file',
       originalname: 'resume.pdf',
       encoding: '7bit',

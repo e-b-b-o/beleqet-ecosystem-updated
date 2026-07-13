@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { StorageService } from './storage.service';
+import { StorageService, MulterFile } from './storage.service';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
@@ -43,7 +43,7 @@ describe('StorageService', () => {
   });
 
   describe('uploadFile', () => {
-    const mockFile = (mimeType: string, size: number, name = 'test.png'): Express.Multer.File => ({
+    const mockFile = (mimeType: string, size: number, name = 'test.png'): MulterFile => ({
       fieldname: 'file',
       originalname: name,
       encoding: '7bit',

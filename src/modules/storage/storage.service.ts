@@ -4,6 +4,17 @@ import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } fro
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StoredFile } from '@prisma/client';
+
+/** Custom local interface representing an uploaded file from Multer to avoid dependency issues */
+export interface MulterFile {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
+
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -100,7 +111,7 @@ export class StorageService {
    *           Obfuscates S3 storage paths by using UUID keys to prevent naming exposure (PII).
    */
   async uploadFile(
-    file: Express.Multer.File,
+    file: MulterFile,
     hasConsentedToProcessing: boolean,
     userId?: string,
   ): Promise<StoredFile> {
