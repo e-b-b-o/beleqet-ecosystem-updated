@@ -45,7 +45,7 @@ export class ResumeBrainController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } }) // 10 uploads / minute
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Upload a resume (PDF/DOC/DOCX, max 5MB) and echo back its metadata',
+    summary: 'Upload a resume (PDF/DOCX, max 5MB) and echo back its metadata',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({

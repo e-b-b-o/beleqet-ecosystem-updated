@@ -155,19 +155,19 @@ export class ResumeBrainService {
   }
 
   /**
-   * Reject anything that is not a PDF / DOC / DOCX. Checks the MIME type first
-   * and falls back to the file extension for browsers/clients that send a
-   * generic `application/octet-stream`.
+   * Reject anything that is not a PDF / DOCX. Checks BOTH the MIME type AND
+   * the file extension to prevent spoofing attacks where a malicious file has
+   * a forged MIME type or a fake extension. Both must match the allowlist.
    */
   private assertSupportedType(file: UploadedResumeFile): void {
     const mimeOk = ALLOWED_MIME_TYPES.includes(file.mimetype);
     const ext = path.extname(file.originalname || '').toLowerCase();
     const extOk = ALLOWED_EXTENSIONS.includes(ext);
 
-    if (!mimeOk && !extOk) {
+    if (!mimeOk || !extOk) {
       throw new UnsupportedMediaTypeException(
         `Unsupported file type "${file.mimetype || ext || 'unknown'}". ` +
-          'Only PDF, DOC, and DOCX resumes are allowed.',
+          'Only PDF and DOCX resumes are allowed.',
       );
     }
 
@@ -178,12 +178,18 @@ export class ResumeBrainService {
    * Defence in depth: verify the file's leading bytes match its declared type.
    * MIME/extension can be spoofed; the magic number cannot. Rejecting a mismatch
    * here fails fast with a clear `415` instead of a confusing `422` deep inside
-   * the parser. `.doc` is legacy binary with several valid signatures, so we
-   * only assert the modern, well-defined `.pdf`/`.docx` headers.
+   * the parser. Every allowed extension (.pdf, .docx) has a well-defined header,
+   * so nothing passes upload validation without a content check.
    */
   private assertMagicNumber(file: UploadedResumeFile, ext: string): void {
     const buffer = file.buffer;
-    if (!buffer || buffer.length < 4) return;
+    // A real PDF/DOCX is never this small — skipping the check here would let a
+    // tiny junk file pass upload only to fail in the parser with a vague 422.
+    if (!buffer || buffer.length < 4) {
+      throw new UnsupportedMediaTypeException(
+        'File is too small to be a valid PDF or DOCX resume.',
+      );
+    }
 
     if (
       ext === '.pdf' &&

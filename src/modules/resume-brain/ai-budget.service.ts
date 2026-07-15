@@ -76,28 +76,59 @@ export class AiBudgetService {
    * Record one extraction's cost against the user's rolling daily window. Call
    * AFTER a successful provider call. Never throws — a metering failure must not
    * fail an otherwise-successful extraction.
+   *
+   * The incr and TTL check run in a single Redis pipeline, and the TTL is
+   * (re)applied whenever the key has none (`TTL == -1`) — not only on the first
+   * write. This closes the race where a crash between `incr` and `expire` left
+   * a counter with no expiration, permanently locking the user out of the
+   * feature, because the very next successful record heals the missing TTL.
    */
   async recordUsage(userId: string | undefined, usage: AiUsage): Promise<void> {
     if (!userId) return;
 
     const window = this.windowSeconds();
     try {
-      const reqKey = this.requestKey(userId);
-      const newRequests = await this.redis.incr(reqKey);
-      // Set the TTL only when the counter was just created, so the window is a
-      // fixed 24h from the user's first extraction of the day, not a sliding one.
-      if (newRequests === 1) await this.redis.expire(reqKey, window);
+      await this.incrementWithWindow(this.requestKey(userId), 1, window);
 
       const tokens = Math.max(0, Math.floor(usage?.totalTokens ?? 0));
       if (tokens > 0) {
-        const tokKey = this.tokenKey(userId);
-        const newTokens = await this.redis.incrby(tokKey, tokens);
-        if (newTokens === tokens) await this.redis.expire(tokKey, window);
+        await this.incrementWithWindow(this.tokenKey(userId), tokens, window);
       }
     } catch (err) {
       this.logger.warn(
         `Failed to record AI usage for user ${userId}: ${(err as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * Atomically increment a counter and guarantee it carries the window TTL.
+   * `incr` + `ttl` go out in one pipeline; if the key has no expiration
+   * (fresh key, or a leftover from a previous crash between incr and expire),
+   * the TTL is applied so the daily window always resets.
+   */
+  private async incrementWithWindow(
+    key: string,
+    by: number,
+    window: number,
+  ): Promise<void> {
+    const pipeline = this.redis.pipeline();
+    if (by === 1) {
+      pipeline.incr(key);
+    } else {
+      pipeline.incrby(key, by);
+    }
+    pipeline.ttl(key);
+    const results = await pipeline.exec();
+
+    // ioredis returns [[err, value], ...]; surface the first command error.
+    for (const [err] of results ?? []) {
+      if (err) throw err;
+    }
+
+    const ttl = Number(results?.[1]?.[1] ?? -1);
+    if (ttl < 0) {
+      await this.redis.expire(key, window);
     }
   }
 

@@ -328,7 +328,7 @@ export default function CvMakerPage() {
             <input
               ref={fileRef}
               type="file"
-              accept=".pdf,.doc,.docx"
+              accept=".pdf,.docx"
               onChange={upload}
               disabled={extracting}
               className="hidden"

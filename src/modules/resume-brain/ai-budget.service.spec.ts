@@ -25,7 +25,10 @@ describe('AiBudgetService', () => {
     incr: jest.Mock;
     incrby: jest.Mock;
     expire: jest.Mock;
+    pipeline: jest.Mock;
   };
+  /** Queue of TTL replies the pipeline mock hands back, one per exec(). */
+  let ttlReplies: number[];
 
   async function build(config = configWith()): Promise<AiBudgetService> {
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -39,11 +42,43 @@ describe('AiBudgetService', () => {
   }
 
   beforeEach(() => {
+    ttlReplies = [];
     redis = {
       mget: jest.fn().mockResolvedValue([null, null]),
       incr: jest.fn().mockResolvedValue(1),
       incrby: jest.fn().mockResolvedValue(0),
       expire: jest.fn().mockResolvedValue(1),
+      // Pipeline mock: queues incr/incrby/ttl, delegates to the flat mocks on
+      // exec() and returns ioredis-style [[err, value], ...] tuples.
+      pipeline: jest.fn(() => {
+        const queued: Array<() => Promise<unknown>> = [];
+        const pipe = {
+          incr: (key: string) => {
+            queued.push(() => redis.incr(key));
+            return pipe;
+          },
+          incrby: (key: string, by: number) => {
+            queued.push(() => redis.incrby(key, by));
+            return pipe;
+          },
+          ttl: () => {
+            queued.push(async () => ttlReplies.shift() ?? -1);
+            return pipe;
+          },
+          exec: async () => {
+            const results: Array<[Error | null, unknown]> = [];
+            for (const run of queued) {
+              try {
+                results.push([null, await run()]);
+              } catch (err) {
+                results.push([err as Error, null]);
+              }
+            }
+            return results;
+          },
+        };
+        return pipe;
+      }),
     };
   });
 
@@ -95,8 +130,7 @@ describe('AiBudgetService', () => {
 
   describe('recordUsage', () => {
     it('increments the request counter and meters tokens', async () => {
-      redis.incr.mockResolvedValue(1); // first request of the window
-      redis.incrby.mockResolvedValue(280); // first token write of the window
+      ttlReplies = [-2, -2]; // fresh keys → no TTL yet
       const service = await build();
 
       await service.recordUsage('user-1', usage(280));
@@ -119,12 +153,31 @@ describe('AiBudgetService', () => {
 
     it('does not reset the TTL on subsequent requests in the window', async () => {
       redis.incr.mockResolvedValue(4); // not the first request
-      redis.incrby.mockResolvedValue(900); // key already existed (900 !== 280)
+      redis.incrby.mockResolvedValue(900); // key already existed
+      ttlReplies = [80_000, 80_000]; // both keys still carry a TTL
       const service = await build();
 
       await service.recordUsage('user-1', usage(280));
 
       expect(redis.expire).not.toHaveBeenCalled();
+    });
+
+    it('heals a counter left without a TTL by a previous crash', async () => {
+      // Simulates the race the reviewer flagged: a crash between incr and
+      // expire leaves the key persistent (TTL == -1). The next record must
+      // re-apply the window instead of locking the user out forever.
+      redis.incr.mockResolvedValue(7); // key existed before this call
+      redis.incrby.mockResolvedValue(900);
+      ttlReplies = [-1, 80_000]; // request key lost its TTL, token key is fine
+      const service = await build();
+
+      await service.recordUsage('user-1', usage(280));
+
+      expect(redis.expire).toHaveBeenCalledWith(
+        'resume-brain:budget:req:user-1',
+        86_400,
+      );
+      expect(redis.expire).toHaveBeenCalledTimes(1);
     });
 
     it('skips the token write when the call reported zero tokens', async () => {

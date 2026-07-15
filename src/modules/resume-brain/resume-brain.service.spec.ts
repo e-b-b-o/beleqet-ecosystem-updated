@@ -91,21 +91,37 @@ describe('ResumeBrainService', () => {
       expect(service.describeUpload(file).filename).toBe('cv.docx');
     });
 
-    it('accepts a legacy .doc file', () => {
+    it('rejects a legacy .doc file with 415 (parser cannot read binary .doc)', () => {
       const file = makeFile({
         originalname: 'cv.doc',
         mimetype: 'application/msword',
         buffer: Buffer.from('\xd0\xcf\x11\xe0 legacy doc'),
       });
-      expect(service.describeUpload(file).filename).toBe('cv.doc');
+      expect(() => service.describeUpload(file)).toThrow(
+        UnsupportedMediaTypeException,
+      );
     });
 
-    it('accepts a file with a valid extension even if the MIME type is generic', () => {
+    it('rejects a spoofed MIME type when the extension is not allowed', () => {
+      // e.g. malware.exe with a forged Content-Type of application/pdf
       const file = makeFile({
-        originalname: 'resume.pdf',
-        mimetype: 'application/octet-stream',
+        originalname: 'malware.exe',
+        mimetype: 'application/pdf',
       });
-      expect(service.describeUpload(file).filename).toBe('resume.pdf');
+      expect(() => service.describeUpload(file)).toThrow(
+        UnsupportedMediaTypeException,
+      );
+    });
+
+    it('rejects a spoofed extension when the MIME type is not allowed', () => {
+      // e.g. malware.pdf uploaded with its real executable MIME type
+      const file = makeFile({
+        originalname: 'malware.pdf',
+        mimetype: 'application/x-msdownload',
+      });
+      expect(() => service.describeUpload(file)).toThrow(
+        UnsupportedMediaTypeException,
+      );
     });
 
     it('throws 400 when no file is provided', () => {
@@ -133,6 +149,14 @@ describe('ResumeBrainService', () => {
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         buffer: Buffer.from('not a zip file'),
       });
+      expect(() => service.describeUpload(file)).toThrow(
+        UnsupportedMediaTypeException,
+      );
+    });
+
+    it('throws 415 when the file is too small to carry a valid header', () => {
+      // A <4-byte buffer used to skip the magic-number check entirely.
+      const file = makeFile({ buffer: Buffer.from('%P') });
       expect(() => service.describeUpload(file)).toThrow(
         UnsupportedMediaTypeException,
       );
